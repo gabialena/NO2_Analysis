@@ -5,10 +5,8 @@
 # on CRAN
 library(sf)
 library(dplyr)
-library(elevatr)
-library(terra)
 library(tmap)
-library(tigris)
+library(spData)
 library(PrestoGP)
 
 # Read in the data
@@ -60,16 +58,13 @@ no2_means_sf <- no2_means_sf %>%
     "Not Near Power Plant"))
 
 # Create a base map of the United States
-us_geo <- states(class = "sf", progress = FALSE)
-us_geo <- st_transform(us_geo, crs = st_crs(no2_means_sf))
-lower48 <- us_geo %>%
-  filter(REGION != 9) %>%
-  shift_geometry()
-us_map <- tm_shape(lower48) + tm_borders()
+data(us_states)
+us_geo <- st_transform(us_states, crs = st_crs(no2_means_sf))
+us_map <- tm_shape(us_geo) + tm_borders()
 
 # Plot the NO2 levels with different symbols for proximity
 us_map + tm_shape(no2_means_sf) +
-  tm_symbols(col = "Y", size = 0.05, palette = "plasma",
+  tm_symbols(col = "Y", size = 0.5, palette = "plasma",
              style = "jenks",
              title.col = "Mean NO2 Level", border.lwd = NA,
              shape = "symbol_type", title.shape = "Proximity",
@@ -82,8 +77,7 @@ locs <- as.matrix(cbind(no2_data$Longitude, no2_data$Latitude,
                         no2_data$YearFrac))
 X <- as.matrix(no2_data[, -(1:6)])
 no2_pgp <- new("VecchiaModel", n_neighbors = 25)
-no2_pgp <- prestogp_fit(no2_pgp, Y, X, locs, scaling = c(1, 1, 2),
-                        optim.control=list(trace = 0, reltol = 1e-2, maxit = 5000))
+no2_pgp <- prestogp_fit(no2_pgp, Y, X, locs, scaling = c(1, 1, 2))
 
 # Group by "ID" to get unique monitoring stations
 unique_stations <- no2_sf %>% group_by(ID) %>% slice(1)
@@ -136,10 +130,19 @@ X_new <- X_new[,-which(colSums(abs(X_new)) == 0)]
 
 # Fit a PrestoGP model to the expanded NO2 data:
 no2_new_pgp <- new("VecchiaModel", n_neighbors = 25)
-no2_new_pgp <- prestogp_fit(no2_new_pgp, Y, X_new, locs, scaling = c(1, 1, 2),
-  optim.control=list(trace = 0, reltol = 1e-2, maxit = 5000))
+no2_new_pgp <- prestogp_fit(no2_new_pgp, Y, X_new, locs,
+  scaling = c(1, 1, 2))
+no2_new_pgp.relax <- new("VecchiaModel", n_neighbors = 25)
+no2_new_pgp.relax <- prestogp_fit(no2_new_pgp, Y, X_new, locs,
+  scaling = c(1, 1, 2), penalty = "relaxed")
+no2_new_pgp.scad <- new("VecchiaModel", n_neighbors = 25)
+no2_new_pgp.scad <- prestogp_fit(no2_new_pgp, Y, X_new, locs,
+  scaling = c(1, 1, 2),  penalty = "SCAD")
+no2_new_pgp.mcp <- new("VecchiaModel", n_neighbors = 25)
+no2_new_pgp.mcp <- prestogp_fit(no2_new_pgp, Y, X_new, locs,
+  scaling = c(1, 1, 2), penalty = "MCP")
 
 # Clean up:
 rm(buffers, joined_data, no2_sf, results, unique_stations, Y, X, X_new, locs,
   no2_means, no2_means_sf, power_plants_co2, no2_means_buffered,
-  intersections, no2_comparison, t_test_result, us_geo, lower48, us_map)
+  intersections, no2_comparison, t_test_result, us_geo, us_map)
